@@ -989,28 +989,40 @@ const PropertyAssessmentTool: React.FC = () => {
   };
 
   useEffect(() => {
-    const loadGoogleMaps = () => {
-      // Check if Google Maps is already loaded
-      const googleMapsScript = document.querySelector('script[src*="maps.googleapis.com"]');
-      if (googleMapsScript) {
-        document.head.removeChild(googleMapsScript);
-      }
+    const loadGoogleMaps = async () => {
+      try {
+        // Remove existing script if any
+        const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+        if (existingScript) {
+          document.head.removeChild(existingScript);
+        }
   
-      const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=places,drawing`;
-      script.async = true;
-      script.defer = true;
-      script.onload = () => {
-        setGoogleLoaded(true);
+        // Create promise to handle script loading
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=places,drawing`;
+          script.async = true;
+          script.defer = true;
+          script.onload = () => {
+            setGoogleLoaded(true);
+            resolve();
+          };
+          script.onerror = () => reject(new Error('Google Maps failed to load'));
+          document.head.appendChild(script);
+        });
+  
+        // Initialize map after script is loaded
         if (mapRef.current) {
           initMap();
         }
-      };
-  
-      document.head.appendChild(script);
+      } catch (error) {
+        console.error('Error loading Google Maps:', error);
+      }
     };
+
+    
   
-    loadGoogleMaps();
+    void loadGoogleMaps();
   
     return () => {
       const script = document.querySelector('script[src*="maps.googleapis.com"]');
@@ -1025,6 +1037,12 @@ const PropertyAssessmentTool: React.FC = () => {
       map.setMapTypeId(mapType as google.maps.MapTypeId);
     }
   }, [mapType, map]);
+
+  useEffect(() => {
+    if (googleLoaded && mapRef.current && !map) {
+      initMap();
+    }
+  }, [googleLoaded, mapRef.current]);
   
   // Update the MapControls props interface
   interface MapControlsProps {
@@ -1155,39 +1173,54 @@ const PropertyAssessmentTool: React.FC = () => {
     };
   
     const initMap = (): void => {
-      if (!mapRef.current) return;
+      if (!mapRef.current || !window.google) {
+        console.warn('Map ref or Google Maps not ready');
+        return;
+      }
     
-      const defaultLocation = { lat: 32.9612, lng: -96.9902 }; // Centered on Coppell, TX
-      
-      const mapInstance = new window.google.maps.Map(mapRef.current, {
-        zoom: 12,
-        center: defaultLocation,
-        mapTypeId: google.maps.MapTypeId.ROADMAP,
-        mapTypeControl: true,
-        mapTypeControlOptions: {
-          style: google.maps.MapTypeControlStyle.DROPDOWN_MENU
-        },
-        zoomControl: true,
-        zoomControlOptions: {
-          position: google.maps.ControlPosition.RIGHT_TOP
-        },
-        scaleControl: true,
-        streetViewControl: true,
-        fullscreenControl: true
-      });
+      try {
+        const defaultLocation = { lat: 32.9612, lng: -96.9902 }; // Centered on Coppell, TX
+        
+        const mapInstance = new window.google.maps.Map(mapRef.current, {
+          zoom: 12,
+          center: defaultLocation,
+          mapTypeId: google.maps.MapTypeId.ROADMAP,
+          mapTypeControl: true,
+          mapTypeControlOptions: {
+            style: google.maps.MapTypeControlStyle.DROPDOWN_MENU
+          },
+          zoomControl: true,
+          zoomControlOptions: {
+            position: google.maps.ControlPosition.RIGHT_TOP
+          },
+          scaleControl: true,
+          streetViewControl: true,
+          fullscreenControl: true
+        });
     
-      mapInstance.addListener('click', (e: google.maps.MapMouseEvent) => {
-        if (e.latLng) {
-          const clickedLocation = {
-            lat: e.latLng.lat(),
-            lng: e.latLng.lng()
-          };
-          updateMarkerAndCircle(clickedLocation);
-          void analyzeLocation(clickedLocation);
-        }
-      });
+        // Ensure map is set in state
+        setMap(mapInstance);
     
-      setMap(mapInstance);
+        // Add click listener after map is created
+        mapInstance.addListener('click', (e: google.maps.MapMouseEvent) => {
+          if (e.latLng) {
+            const clickedLocation = {
+              lat: e.latLng.lat(),
+              lng: e.latLng.lng()
+            };
+            updateMarkerAndCircle(clickedLocation);
+            void analyzeLocation(clickedLocation);
+          }
+        });
+    
+        // Trigger a resize event after a short delay to ensure proper rendering
+        setTimeout(() => {
+          window.google.maps.event.trigger(mapInstance, 'resize');
+        }, 100);
+    
+      } catch (error) {
+        console.error('Error initializing map:', error);
+      }
     };
   
     const updateMarkerAndCircle = (location: GeoLocation): void => {
