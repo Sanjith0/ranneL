@@ -77,7 +77,7 @@ const LoginPage = () => {
     top: '20px',
     left: '50%',
     transform: 'translateX(-50%)',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#ff4444',
     color: 'white',
     padding: '12px 24px',
     borderRadius: '8px',
@@ -178,7 +178,7 @@ const LoginPage = () => {
           position: 'relative',
           display: 'inline-block'
         }}>
-          Rannel
+          Ingrediate
           <div style={{
             content: '""',
             position: 'absolute',
