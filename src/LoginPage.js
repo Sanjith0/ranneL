@@ -183,6 +183,20 @@ const LoginPage = () => {
     marginBottom: '30px' // Added margin bottom to create more space
   }}>
     Open the Door to a Brighter Future.
+
+    
+  </p>
+  <br></br>
+  <p style={{
+    fontSize: '24px',
+    fontFamily: 'serif',
+    opacity: '0.9',
+    color: '#2F3E46',
+    textShadow: '1px 1px 2px rgba(0,0,0,0.1)',
+    letterSpacing: '0.5px',
+    marginBottom: '30px' // Added margin bottom to create more space
+  }}>
+  The testing account is already logged in. Press (Login) to proceed
   </p>
 </div>
       
@@ -206,7 +220,7 @@ const LoginPage = () => {
             <div style={{ position: 'relative' }}>
               <input 
                 type="text"
-                placeholder="Username"
+                placeholder="rannelTesting"
                 value={formState.username}
                 onChange={(e) => setFormState({...formState, username: e.target.value})}
                 style={{
@@ -229,7 +243,7 @@ const LoginPage = () => {
             <div style={{ position: 'relative' }}>
               <input 
                 type="password"
-                placeholder="Password"
+                placeholder="webApp1!"
                 value={formState.confirmPassword}
                 onChange={(e) => {
                   setFormState({...formState, confirmPassword: e.target.value});
