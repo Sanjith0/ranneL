@@ -9,9 +9,41 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #ebeff5;
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Add these new styles below your existing CSS */
+@layer components {
+  .ui-card {
+    @apply bg-white rounded-lg shadow-md;
+  }
+  
+  .form-container, 
+  .map-controls, 
+  .search-box, 
+  .map-container,
+  .location-selector,
+  input,
+  select,
+  button {
+    @apply shadow-md;
+  }
+}
+
+/* If you need more control without using Tailwind classes */
+.custom-shadow {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* For input fields and buttons specifically */
+input[type="text"],
+input[type="search"],
+button,
+select {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }

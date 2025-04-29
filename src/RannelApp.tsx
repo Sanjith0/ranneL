@@ -1826,7 +1826,7 @@ const PropertyAssessmentTool: React.FC = () => {
   return (
    <>
    {/* Logo Header */}
-   <div className="flex justify-center py-6 bg-white">
+   <div className="flex justify-center py-6">
       <img 
         src="/logo2.png"  // Make sure the PNG is in your public folder with this name
         alt="Rannel"
@@ -1887,23 +1887,23 @@ const PropertyAssessmentTool: React.FC = () => {
             ref={mapRef} 
             className="w-full h-[700px] rounded-lg shadow-lg border border-gray-200"
           ></div>
-          
-          <div className="text-sm text-gray-600">
-            <div className="font-medium mb-2">Map Legend:</div>
-            <div className="grid grid-cols-2 gap-2">
+
+          <div className="mt-4 p-4 bg-white rounded-lg shadow-md border border-gray-100">
+            <div className="font-medium text-lg mb-3 text-gray-700">Map Legend</div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-y-3">
               {Object.entries({
-                shopping: 'yellow',
-                restaurant: 'red',
-                school: 'blue',
-                park: 'green',
-                transport: 'purple'
+                Shopping: 'yellow',
+                Restaurant: 'red',
+                School: 'blue',
+                Park: 'green',
+                Transport: 'purple'
               }).map(([category, color]) => (
-                <div key={category} className="flex items-center gap-2">
+                <div key={category} className="flex items-center gap-3">
                   <span 
-                    className="w-4 h-4 rounded-full" 
+                    className="w-6 h-6 rounded-full flex-shrink-0 shadow-sm" 
                     style={{ backgroundColor: color }}
                   ></span>
-                  <span className="capitalize">{category}</span>
+                  <span className="font-medium text-gray-600">{category}</span>
                 </div>
               ))}
             </div>
