@@ -1,0 +1,977 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { MapPin, Menu } from 'lucide-react';
+
+// API key should be stored in your environment variables
+const GOOGLE_MAPS_API_KEY = 'AIzaSyBf5WWjQksCtxIziKvs7kFq4qjPCf6SoZQ';
+const NomadWorkspaceFinder = () => {
+  // State variables
+  const [currentStep, setCurrentStep] = useState('location');
+  const [mapsLoaded, setMapsLoaded] = useState(false);
+  const [userPreferences, setUserPreferences] = useState({
+    currentAddress: '',
+    maxCommuteTime: 30,
+    spaceType: 'cafe',
+    noiseLevel: 'moderate',
+    paidAccess: 'no',
+    foodOptions: 'some',
+    workspaceSize: 'medium',
+    amenities: {
+      printers: false,
+      coffee: false,
+      wifi: true,
+      other: '',
+    },
+    workdays: {
+      sunday: false,
+      monday: true,
+      tuesday: true,
+      wednesday: true,
+      thursday: true,
+      friday: true,
+      saturday: false,
+    },
+    workTimes: {
+      start: '09:00',
+      end: '17:00',
+    },
+    industry: '',
+    workInvolves: '',
+  });
+  
+  // State for map/results view
+  const [showResults, setShowResults] = useState(false);
+  const [workspaces, setWorkspaces] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedWorkspace, setSelectedWorkspace] = useState(null);
+  const [error, setError] = useState(null);
+  const [formSubmitted, setFormSubmitted] = useState(false);
+  
+  // Map reference
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const markersRef = useRef([]);
+
+  // Load Google Maps Script
+  useEffect(() => {
+    const loadGoogleMapsScript = () => {
+      if (window.google) {
+        setMapsLoaded(true);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => setMapsLoaded(true);
+      document.head.appendChild(script);
+    };
+
+    loadGoogleMapsScript();
+    
+    // Cleanup function to handle component unmounting
+    return () => {
+      setMapsLoaded(false);
+    };
+  }, []);
+  
+  // Function to initialize map
+  const initializeMap = (location) => {
+    if (!mapRef.current || !window.google) return;
+    
+    const mapOptions = {
+      center: location,
+      zoom: 13,
+      styles: [
+        { elementType: "geometry", stylers: [{ color: "#f5f5f5" }] },
+        { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#f5f5f5" }] },
+        { featureType: "administrative.land_parcel", stylers: [{ visibility: "off" }] },
+        { featureType: "administrative.land_parcel", elementType: "labels.text.fill", stylers: [{ color: "#bdbdbd" }] },
+        { featureType: "poi", elementType: "geometry", stylers: [{ color: "#eeeeee" }] },
+        { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+        { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#e5e5e5" }] },
+        { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+        { featureType: "road.arterial", elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#dadada" }] },
+        { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+        { featureType: "road.local", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
+        { featureType: "transit.line", elementType: "geometry", stylers: [{ color: "#e5e5e5" }] },
+        { featureType: "transit.station", elementType: "geometry", stylers: [{ color: "#eeeeee" }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#c9c9c9" }] },
+        { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#9e9e9e" }] },
+      ],
+    };
+    
+    mapInstance.current = new window.google.maps.Map(mapRef.current, mapOptions);
+    
+    // Add user location marker
+    new window.google.maps.Marker({
+      position: location,
+      map: mapInstance.current,
+      icon: {
+        path: window.google.maps.SymbolPath.CIRCLE,
+        scale: 8,
+        fillColor: "#4285F4",
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+      },
+    });
+  };
+  
+  // Function to add workspace markers to map
+  const addWorkspaceMarkers = (workspaces) => {
+    if (!mapInstance.current) return;
+    
+    // Clear existing markers
+    markersRef.current.forEach(marker => marker.setMap(null));
+    markersRef.current = [];
+    
+    workspaces.forEach((workspace) => {
+      if (workspace.geometry && workspace.geometry.location) {
+        const marker = new window.google.maps.Marker({
+          position: workspace.geometry.location,
+          map: mapInstance.current,
+          title: workspace.name,
+          animation: window.google.maps.Animation.DROP,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: workspace.id === selectedWorkspace?.id ? "#FF0000" : "#4A90E2",
+            fillOpacity: 0.8,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          },
+        });
+        
+        // Add click event to marker
+        marker.addListener('click', () => {
+          handleWorkspaceSelect(workspace);
+        });
+        
+        markersRef.current.push(marker);
+      }
+    });
+  };
+
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setUserPreferences({
+      ...userPreferences,
+      [name]: value,
+    });
+  };
+  
+  // Handle workspace selection
+  const handleWorkspaceSelect = (workspace) => {
+    setSelectedWorkspace(workspace);
+    
+    // Update marker colors if map is initialized
+    if (mapInstance.current && markersRef.current.length > 0) {
+      markersRef.current.forEach(marker => {
+        if (marker.getTitle() === workspace.name) {
+          marker.setIcon({
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: "#FF0000",
+            fillOpacity: 0.8,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          });
+        } else {
+          marker.setIcon({
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 10,
+            fillColor: "#4A90E2",
+            fillOpacity: 0.8,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          });
+        }
+      });
+    }
+  };
+
+  // Handle checkbox changes for amenities
+  const handleAmenityChange = (e) => {
+    const { name, checked } = e.target;
+    setUserPreferences({
+      ...userPreferences,
+      amenities: {
+        ...userPreferences.amenities,
+        [name]: checked,
+      }
+    });
+  };
+
+  // Handle checkbox changes for workdays
+  const handleWorkdayChange = (e) => {
+    const { name, checked } = e.target;
+    setUserPreferences({
+      ...userPreferences,
+      workdays: {
+        ...userPreferences.workdays,
+        [name]: checked,
+      }
+    });
+  };
+
+  // Handle work time changes
+  const handleTimeChange = (e) => {
+    const { name, value } = e.target;
+    setUserPreferences({
+      ...userPreferences,
+      workTimes: {
+        ...userPreferences.workTimes,
+        [name]: value,
+      }
+    });
+  };
+  
+  // Function to check if a place is open during the specified workdays and times
+  const isPlaceOpenDuringWorkHours = (place) => {
+    if (!place.opening_hours || !place.opening_hours.periods) {
+      return false; // Can't determine if it's open
+    }
+
+    // Convert user's work times to minutes for easier comparison
+    const convertTimeToMinutes = (timeStr) => {
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+    
+    const userStartMinutes = convertTimeToMinutes(userPreferences.workTimes.start);
+    const userEndMinutes = convertTimeToMinutes(userPreferences.workTimes.end);
+    
+    // Check each selected workday
+    const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const selectedWorkdays = daysOfWeek.filter(day => userPreferences.workdays[day]);
+    
+    // Must be open on all selected workdays during specified hours
+    return selectedWorkdays.every(day => {
+      const dayIndex = daysOfWeek.indexOf(day);
+      
+      // Find matching period for this day
+      const period = place.opening_hours.periods.find(p => p.open.day === dayIndex);
+      if (!period) return false;
+      
+      // Convert place's hours to minutes
+      const placeOpenMinutes = parseInt(period.open.hours) * 60 + parseInt(period.open.minutes);
+      const placeCloseMinutes = parseInt(period.close.hours) * 60 + parseInt(period.close.minutes);
+      
+      // Check if place's hours contain user's work hours
+      return placeOpenMinutes <= userStartMinutes && placeCloseMinutes >= userEndMinutes;
+    });
+  };
+
+  // Function to calculate distance and duration using Google Distance Matrix API
+  const calculateCommuteTimes = async (places, origin) => {
+    if (!window.google) {
+      throw new Error("Google Maps not loaded");
+    }
+    
+    const service = new window.google.maps.DistanceMatrixService();
+    const destinations = places.map(place => place.geometry.location);
+    
+    try {
+      const response = await new Promise((resolve, reject) => {
+        service.getDistanceMatrix({
+          origins: [origin],
+          destinations: destinations,
+          travelMode: 'DRIVING',
+        }, (response, status) => {
+          if (status === 'OK') {
+            resolve(response);
+          } else {
+            reject(new Error(`Distance Matrix failed: ${status}`));
+          }
+        });
+      });
+
+      return response.rows[0].elements;
+    } catch (err) {
+      throw new Error('Error calculating commute times: ' + err.message);
+    }
+  };
+
+  // Navigate to next step
+  const handleNext = () => {
+    if (currentStep === 'location') {
+      setCurrentStep('workspace');
+    } else if (currentStep === 'workspace') {
+      setCurrentStep('work');
+    } else if (currentStep === 'work') {
+      setCurrentStep('timings');
+    } else if (currentStep === 'timings') {
+      handleSubmit();
+    }
+  };
+
+  // Navigate to previous step
+  const handlePrev = () => {
+    if (currentStep === 'workspace') {
+      setCurrentStep('location');
+    } else if (currentStep === 'work') {
+      setCurrentStep('workspace');
+    } else if (currentStep === 'timings') {
+      setCurrentStep('work');
+    }
+  };
+  
+  // Function to search places using Google Places API
+  const searchPlaces = async () => {
+    setFormSubmitted(true);
+    
+    if (!userPreferences.currentAddress || !mapsLoaded) {
+      setError("Please ensure you've entered an address and Google Maps has loaded");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const geocoder = new window.google.maps.Geocoder();
+      
+      // First, geocode the current address
+      const geocodeResult = await new Promise((resolve, reject) => {
+        geocoder.geocode({ address: userPreferences.currentAddress }, (results, status) => {
+          if (status === 'OK' && results.length > 0) {
+            resolve(results[0]);
+          } else {
+            reject(new Error(`Geocoding failed: ${status}`));
+          }
+        });
+      });
+
+      const service = new window.google.maps.places.PlacesService(document.createElement('div'));
+      
+      // Determine place types based on preferences
+      let placeType;
+      switch(userPreferences.spaceType) {
+        case 'cafe':
+          placeType = 'cafe';
+          break;
+        case 'library':
+          placeType = 'library';
+          break;
+        case 'office':
+          placeType = 'coworking_space';
+          break;
+        default:
+          placeType = 'establishment';
+      }
+
+      // Prepare amenities as keywords
+      const amenityKeywords = Object.keys(userPreferences.amenities)
+        .filter(key => userPreferences.amenities[key] && key !== 'other')
+        .concat(userPreferences.amenities.other ? [userPreferences.amenities.other] : [])
+        .join(' ');
+
+      // Build search query based on preferences
+      const searchRequest = {
+        location: geocodeResult.geometry.location,
+        radius: 15000, // 15km radius to ensure we get results
+        type: placeType,
+        // Add opening_hours to get opening hours data
+        fields: ['name', 'place_id', 'geometry', 'photos', 'rating', 'user_ratings_total', 'vicinity', 'opening_hours']
+      };
+
+      // If we have specific amenities, add them as keywords
+      if (amenityKeywords) {
+        searchRequest.keyword = amenityKeywords;
+      }
+
+      // Search for places
+      const placesResult = await new Promise((resolve, reject) => {
+        service.nearbySearch(searchRequest, (results, status) => {
+          if (status === 'OK') {
+            resolve(results);
+          } else {
+            reject(new Error(`Places search failed: ${status}`));
+          }
+        });
+      });
+
+      // For each place, get detailed information including opening hours
+      const detailedPlaces = await Promise.all(
+        placesResult.map(place => {
+          return new Promise((resolve, reject) => {
+            service.getDetails({
+              placeId: place.place_id,
+              fields: ['opening_hours', 'price_level', 'types', 'reviews']
+            }, (result, status) => {
+              if (status === 'OK') {
+                // Merge the detailed data with the basic place data
+                resolve({
+                  ...place,
+                  opening_hours: result.opening_hours,
+                  price_level: result.price_level,
+                  types: result.types,
+                  reviews: result.reviews
+                });
+              } else {
+                // If details couldn't be fetched, just use the basic place data
+                resolve(place);
+              }
+            });
+          });
+        })
+      );
+
+      // Calculate commute times for each place
+      const commuteTimes = await calculateCommuteTimes(detailedPlaces, geocodeResult.geometry.location);
+      
+      // Filter places based on user preferences
+      const filteredPlaces = detailedPlaces.filter((place, index) => {
+        const commuteInfo = commuteTimes[index];
+        
+        // Make sure place meets commute time requirements
+        if (!(commuteInfo && commuteInfo.status === "OK" && 
+              commuteInfo.duration.value <= (userPreferences.maxCommuteTime * 60))) {
+          return false;
+        }
+
+        // Check if place is open during work hours (if data is available)
+        if (place.opening_hours && place.opening_hours.periods) {
+          if (!isPlaceOpenDuringWorkHours(place)) {
+            return false;
+          }
+        }
+
+        // Check paid access preference
+        if (userPreferences.paidAccess === 'no' && place.price_level > 1) {
+          return false;
+        }
+
+        // Additional filters could be added here for noise level, food options, etc.
+        // These would need to be estimated from place types, reviews or other attributes
+
+        return true;
+      });
+
+      // Add commute info to each place for display
+      const placesWithCommuteInfo = filteredPlaces.map((place, index) => {
+        const commuteInfo = commuteTimes[index];
+        
+        // Convert price level to $ symbols
+        const priceSymbols = place.price_level ? '$'.repeat(place.price_level) : '$';
+        
+        // Generate amenities list based on place types and features
+        const amenities = [];
+        if (place.types.includes('wifi') || userPreferences.amenities.wifi) amenities.push("Free WiFi");
+        if (place.types.includes('cafe') || place.types.includes('restaurant')) amenities.push("Food/Coffee");
+        if (place.types.includes('library')) amenities.push("Quiet space");
+        amenities.push("Power outlets"); // Assuming most workspaces have this
+        
+        // Convert opening hours to structured format
+        const formattedHours = place.opening_hours && place.opening_hours.weekday_text 
+          ? place.opening_hours.weekday_text 
+          : ['Hours information not available'];
+        
+        return {
+          id: place.place_id,
+          name: place.name,
+          address: place.vicinity,
+          type: place.types.includes('cafe') ? 'Cafe' : 
+                place.types.includes('library') ? 'Library' : 
+                place.types.includes('coworking_space') ? 'Coworking Space' : 'Workspace',
+          photo: place.photos && place.photos[0] ? place.photos[0].getUrl() : '/api/placeholder/400/320',
+          rating: place.rating || 0,
+          reviews: place.user_ratings_total || 0,
+          price: priceSymbols,
+          amenities: amenities,
+          noise: userPreferences.noiseLevel.charAt(0).toUpperCase() + userPreferences.noiseLevel.slice(1),
+          hours: formattedHours,
+          commuteInfo: commuteInfo && commuteInfo.status === "OK" ? {
+            distance: commuteInfo.distance.text,
+            duration: commuteInfo.duration.text
+          } : null,
+          geometry: place.geometry
+        };
+      });
+
+      setWorkspaces(placesWithCommuteInfo);
+      
+      // Initialize map and add markers
+      initializeMap(geocodeResult.geometry.location);
+      addWorkspaceMarkers(placesWithCommuteInfo);
+      
+      if (placesWithCommuteInfo.length === 0) {
+        setError("No places found matching your criteria. Try adjusting your preferences or search radius.");
+      }
+      
+      setShowResults(true);
+    } catch (err) {
+      setError("Search error: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Submit the form and show results
+  const handleSubmit = () => {
+    if (!userPreferences.currentAddress || !mapsLoaded) {
+      setError("Please ensure you've entered an address and Google Maps has loaded");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    
+    // Search for workspaces
+    searchPlaces()
+      .catch(err => {
+        setError("Search error: " + err.message);
+        setLoading(false);
+      });
+  };
+
+  return (
+    <div className="min-h-screen bg-blue-50">
+      {loading ? (
+        <div className="h-screen flex items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+            <p className="text-gray-600">Searching for workspaces that match your preferences...</p>
+          </div>
+        </div>
+      ) : !showResults ? (
+        <div className="max-w-2xl mx-auto p-4">
+          {/* Header */}
+          <div className="bg-blue-100 rounded-lg p-4 mb-4 flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="bg-blue-600 rounded-full p-2 mr-2">
+                <MapPin className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-blue-800 font-bold text-lg">nomad</span>
+            </div>
+            <span className="text-blue-800 font-medium">Hi User!</span>
+          </div>
+          
+          {/* Main Content */}
+          <div className="bg-white rounded-lg shadow-md">
+            <div className="p-6">
+              <h1 className="text-2xl font-bold text-gray-800 mb-2">Let's Get Started!</h1>
+              <p className="text-gray-600 mb-6">This questionnaire will let us know what you want out of a remote workspace!</p>
+              
+              {/* Error Message - Only show after form submission */}
+              {error && formSubmitted && (
+                <div className="rounded-md bg-red-50 p-4 mb-4">
+                  <div className="flex">
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-red-800">Error</h3>
+                      <div className="mt-2 text-sm text-red-700">{error}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex">
+                {/* Sidebar Navigation */}
+                <div className="w-1/3 pr-4">
+                  <div className={`p-3 rounded-md mb-2 ${currentStep === 'location' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
+                    Location
+                  </div>
+                  <div className={`p-3 rounded-md mb-2 ${currentStep === 'workspace' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
+                    Workspace Preference
+                  </div>
+                  <div className={`p-3 rounded-md mb-2 ${currentStep === 'work' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
+                    Your Work
+                  </div>
+                  <div className={`p-3 rounded-md mb-2 ${currentStep === 'timings' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
+                    Timings
+                  </div>
+                </div>
+                
+                {/* Form Content */}
+                <div className="w-2/3 pl-4 bg-blue-50 rounded-lg p-6">
+                  {/* Location Step */}
+                  {currentStep === 'location' && (
+                    <div>
+                      <div className="mb-6">
+                        <h2 className="text-lg font-medium mb-3">Where is Your Primary Residence?</h2>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            name="currentAddress"
+                            value={userPreferences.currentAddress}
+                            onChange={handleInputChange}
+                            placeholder="Enter location"
+                            className="w-full p-3 border border-gray-300 rounded-md pr-10"
+                          />
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <h2 className="text-lg font-medium mb-3">What is your preferred commute time?</h2>
+                        <p className="text-sm text-gray-600 mb-2">(5-10 mins, 10-30 mins, 30-60 min, 1+ hr, no preference)</p>
+                        <div className="relative">
+                          <select
+                            name="maxCommuteTime"
+                            value={userPreferences.maxCommuteTime}
+                            onChange={handleInputChange}
+                            className="w-full p-3 border border-gray-300 rounded-md appearance-none pr-10"
+                          >
+                            <option value="10">5-10 minutes</option>
+                            <option value="30">10-30 minutes</option>
+                            <option value="60">30-60 minutes</option>
+                            <option value="120">1+ hour</option>
+                            <option value="999">No preference</option>
+                          </select>
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Workspace Preferences Step */}
+                  {currentStep === 'workspace' && (
+                    <div>
+                      <div className="mb-6">
+                        <h2 className="text-lg font-medium mb-3">What is your preferred workspace?</h2>
+                        <div className="relative">
+                          <select
+                            name="spaceType"
+                            value={userPreferences.spaceType}
+                            onChange={handleInputChange}
+                            className="w-full p-3 border border-gray-300 rounded-md appearance-none pr-10"
+                          >
+                            <option value="cafe">Cafe</option>
+                            <option value="library">Library</option>
+                            <option value="office">Office/Coworking Space</option>
+                            <option value="other">Other</option>
+                          </select>
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="mb-6">
+                        <h2 className="text-lg font-medium mb-3">What is your noise level preference?</h2>
+                        <p className="text-sm text-gray-600 mb-2">(Silent, quiet, peaceful, moderate, other, no preference)</p>
+                        <div className="relative">
+                          <select
+                            name="noiseLevel"
+                            value={userPreferences.noiseLevel}
+                            onChange={handleInputChange}
+                            className="w-full p-3 border border-gray-300 rounded-md appearance-none pr-10"
+                          >
+                            <option value="silent">Silent</option>
+                            <option value="quiet">Quiet</option>
+                            <option value="peaceful">Peaceful</option>
+                            <option value="moderate">Moderate</option>
+                            <option value="lively">Lively</option>
+                            <option value="no-pref">No preference</option>
+                          </select>
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="mb-6">
+                        <h2 className="text-lg font-medium mb-3">Would you prefer paid or free spaces?</h2>
+                        <p className="text-sm text-gray-600 mb-2">(paid, free, no preference)</p>
+                        <div className="relative">
+                          <select
+                            name="paidAccess"
+                            value={userPreferences.paidAccess}
+                            onChange={handleInputChange}
+                            className="w-full p-3 border border-gray-300 rounded-md appearance-none pr-10"
+                          >
+                            <option value="yes">Paid (willing to pay)</option>
+                            <option value="no">Free (free access only)</option>
+                            <option value="no-pref">No preference</option>
+                          </select>
+                          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                            <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                      </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Navigation buttons */}
+            <div className="px-6 py-4 bg-gray-50 rounded-b-lg flex justify-end space-x-2">
+              {currentStep !== 'location' && (
+                <button
+                  onClick={handlePrev}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition"
+                >
+                  &lt; prev
+                </button>
+              )}
+              <button
+                onClick={currentStep === 'timings' ? handleSubmit : handleNext}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+              >
+                {currentStep === 'timings' ? 'submit >' : 'next >'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-screen bg-blue-50 p-4">
+          {/* Results Header */}
+          <div className="bg-blue-100 rounded-lg p-4 mb-4 flex items-center justify-between max-w-6xl mx-auto">
+            <div className="flex items-center">
+              <div className="bg-blue-600 rounded-full p-2 mr-2">
+                <MapPin className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-blue-800 font-bold text-lg">nomad</span>
+            </div>
+            <span className="text-blue-800 font-medium">Hi User!</span>
+          </div>
+          
+          {/* Error Message - Only show after form submission */}
+          {error && (
+            <div className="rounded-md bg-red-50 p-4 mb-8 max-w-6xl mx-auto">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">Error</h3>
+                  <div className="mt-2 text-sm text-red-700">{error}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Location Finder Map */}
+          <div className="max-w-6xl mx-auto bg-white rounded-lg shadow-md mb-6">
+            <div className="p-4 flex flex-col md:flex-row">
+              <div className="w-full md:w-1/3 p-4">
+                <h2 className="font-medium text-lg mb-4">Workspaces Near {userPreferences.currentAddress}</h2>
+                <div className="mb-6 flex justify-center">
+                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
+                    <MapPin className="h-8 w-8 text-gray-500" />
+                  </div>
+                </div>
+                <p className="text-center mb-6">Click any location to see its details</p>
+                <p className="text-sm text-gray-500 mt-auto">All workspaces match your preferences from the questionnaire</p>
+              </div>
+              <div className="w-full md:w-2/3 bg-gray-800 rounded-lg h-64 md:h-auto relative" ref={mapRef}>
+                {/* Map will be rendered here */}
+                {!mapsLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-800 text-white">
+                    Loading Google Maps...
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* Workspace Results */}
+          <div className="max-w-6xl mx-auto mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">
+              {workspaces.length > 0 ? "Recommended Workspaces" : "No workspaces found"}
+            </h2>
+            
+            {selectedWorkspace ? (
+              <div className="bg-white rounded-lg shadow-md overflow-hidden mb-6">
+                <div className="flex flex-col md:flex-row">
+                  <div className="md:w-1/2">
+                    <div className="h-64 bg-gray-200 relative">
+                      <img 
+                        src={selectedWorkspace.photo} 
+                        alt={selectedWorkspace.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.src = '/api/placeholder/400/320';
+                          e.target.alt = 'Image not available';
+                        }}
+                      />
+                    </div>
+                    
+                    <div className="p-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-xl font-medium text-gray-900">{selectedWorkspace.name}</h3>
+                          <p className="text-sm text-gray-500">{selectedWorkspace.address}</p>
+                          <p className="text-sm text-gray-500">{selectedWorkspace.type} • {selectedWorkspace.price}</p>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="text-yellow-400 text-lg">★</span>
+                          <span className="ml-1 text-sm text-gray-600">
+                            {selectedWorkspace.rating}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-4 flex items-center text-sm text-gray-600">
+                        <div className="mr-4">
+                          <span className="font-medium">Distance:</span> {selectedWorkspace.commuteInfo?.distance}
+                        </div>
+                        <div>
+                          <span className="font-medium">Travel time:</span> {selectedWorkspace.commuteInfo?.duration}
+                        </div>
+                      </div>
+                      
+                      <div className="mt-4">
+                        <h4 className="font-medium text-gray-800 mb-2">Amenities</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedWorkspace.amenities.map((amenity, i) => (
+                            <span key={i} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                              {amenity}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="md:w-1/2 p-4 bg-gray-50">
+                    <h4 className="font-medium text-gray-800 mb-2">Hours of Operation</h4>
+                    <div className="mb-6">
+                      {selectedWorkspace.hours.map((day, i) => (
+                        <div key={i} className="flex justify-between py-1 border-b border-gray-200 text-sm">
+                          <span>{day.split(':')[0]}:</span>
+                          <span>{day.split(':').slice(1).join(':')}</span>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <h4 className="font-medium text-gray-800 mb-2">Noise Level</h4>
+                    <p className="text-sm text-gray-600 mb-6">{selectedWorkspace.noise}</p>
+                    
+                    <div className="mt-auto">
+                      <button className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 transition">
+                        Get Directions
+                      </button>
+                      <button 
+                        onClick={() => setSelectedWorkspace(null)}
+                        className="w-full mt-2 border border-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-100 transition"
+                      >
+                        Back to Results
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {workspaces.map((workspace) => (
+                  <div 
+                    key={workspace.id} 
+                    className="bg-white overflow-hidden shadow rounded-lg cursor-pointer transition hover:shadow-lg"
+                    onClick={() => handleWorkspaceSelect(workspace)}
+                  >
+                    <div className="h-48 bg-gray-200">
+                      <img 
+                        src={workspace.photo} 
+                        alt={workspace.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.src = '/api/placeholder/400/320';
+                          e.target.alt = 'Image not available';
+                        }}
+                      />
+                    </div>
+                    <div className="p-4">
+                      <div className="flex justify-between items-start">
+                        <h3 className="text-lg font-medium text-gray-900">{workspace.name}</h3>
+                        <div className="flex items-center">
+                          <span className="text-yellow-400">★</span>
+                          <span className="ml-1 text-sm text-gray-600">
+                            {workspace.rating}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="mt-1 text-sm text-gray-500">{workspace.address}</p>
+                      <p className="text-sm text-gray-500">{workspace.type} • {workspace.price}</p>
+                      
+                      {/* Commute Info */}
+                      {workspace.commuteInfo && (
+                        <div className="mt-2 text-sm text-gray-700">
+                          <p><span className="font-medium">Distance:</span> {workspace.commuteInfo.distance}</p>
+                          <p><span className="font-medium">Travel time:</span> {workspace.commuteInfo.duration}</p>
+                        </div>
+                      )}
+                      
+                      {/* Amenities */}
+                      <div className="mt-3 flex flex-wrap gap-1">
+                        {workspace.amenities.slice(0, 3).map((amenity, i) => (
+                          <span key={i} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                            {amenity}
+                          </span>
+                        ))}
+                        {workspace.amenities.length > 3 && (
+                          <span className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
+                            +{workspace.amenities.length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          {/* Back to Search Link */}
+          <div className="max-w-6xl mx-auto">
+            <button 
+              onClick={() => {
+                setShowResults(false);
+                setSelectedWorkspace(null);
+                setCurrentStep('location');
+              }}
+              className="text-blue-600 hover:text-blue-800 transition"
+            >
+              ← Back to search
+            </button>
+          </div>
+          
+          {/* Empty state when no workspaces found */}
+          {workspaces.length === 0 && !loading && (
+            <div className="max-w-6xl mx-auto text-center py-12">
+              <div className="mb-4">
+                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900">No workspaces found</h3>
+              <p className="mt-2 text-gray-500">
+                Try adjusting your preferences or searching in a different area.
+              </p>
+              <div className="mt-6">
+                <button
+                  onClick={() => {
+                    setShowResults(false);
+                    setCurrentStep('location');
+                  }}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  Update Preferences
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+export default NomadWorkspaceFinder;
